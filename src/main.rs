@@ -6,6 +6,7 @@
 #![allow(async_fn_in_trait)]
 
 use core::str::from_utf8;
+use heapless::String;
 
 use cyw43::JoinOptions;
 use cyw43_pio::PioSpi;
@@ -28,9 +29,10 @@ bind_interrupts!(struct Irqs {
     PIO0_IRQ_0 => InterruptHandler<PIO0>;
 });
 
-
 #[embassy_executor::task]
-async fn cyw43_task(runner: cyw43::Runner<'static, Output<'static>, PioSpi<'static, PIO0, 0, DMA_CH0>>) -> ! {
+async fn cyw43_task(
+    runner: cyw43::Runner<'static, Output<'static>, PioSpi<'static, PIO0, 0, DMA_CH0>>,
+) -> ! {
     runner.run().await
 }
 
@@ -62,7 +64,15 @@ async fn main(spawner: Spawner) {
     let pwr = Output::new(p.PIN_23, Level::Low);
     let cs = Output::new(p.PIN_25, Level::High);
     let mut pio = Pio::new(p.PIO0, Irqs);
-    let spi = PioSpi::new(&mut pio.common, pio.sm0, pio.irq0, cs, p.PIN_24, p.PIN_29, p.DMA_CH0);
+    let spi = PioSpi::new(
+        &mut pio.common,
+        pio.sm0,
+        pio.irq0,
+        cs,
+        p.PIN_24,
+        p.PIN_29,
+        p.DMA_CH0,
+    );
 
     static STATE: StaticCell<cyw43::State> = StaticCell::new();
     let state = STATE.init(cyw43::State::new());
@@ -74,7 +84,11 @@ async fn main(spawner: Spawner) {
         .set_power_management(cyw43::PowerManagementMode::PowerSave)
         .await;
 
-    let config = Config::dhcpv4(Default::default());
+    let mut dhcpv4 = embassy_net::DhcpConfig::default();
+    const MAX_HOSTNAME_LEN: usize = 32;
+    let hostname: String<MAX_HOSTNAME_LEN> = String::try_from("horman").expect("hostname");
+    dhcpv4.hostname = Some(hostname);
+    let config = Config::dhcpv4(dhcpv4);
     //let config = embassy_net::Config::ipv4_static(embassy_net::StaticConfigV4 {
     //    address: Ipv4Cidr::new(Ipv4Address::new(192, 168, 69, 2), 24),
     //    dns_servers: Vec::new(),
@@ -86,15 +100,17 @@ async fn main(spawner: Spawner) {
 
     // Init network stack
     static RESOURCES: StaticCell<StackResources<3>> = StaticCell::new();
-    let (stack, runner) = embassy_net::new(net_device, config, RESOURCES.init(StackResources::new()), seed);
+    let (stack, runner) = embassy_net::new(
+        net_device,
+        config,
+        RESOURCES.init(StackResources::new()),
+        seed,
+    );
 
     unwrap!(spawner.spawn(net_task(runner)));
 
     loop {
-        match control
-            .join(ssid, JoinOptions::new(psk.as_bytes()))
-            .await
-        {
+        match control.join(ssid, JoinOptions::new(psk.as_bytes())).await {
             Ok(_) => break,
             Err(err) => {
                 info!("join failed with status={}", err.status);
