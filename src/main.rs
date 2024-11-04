@@ -28,8 +28,6 @@ bind_interrupts!(struct Irqs {
     PIO0_IRQ_0 => InterruptHandler<PIO0>;
 });
 
-const WIFI_NETWORK: &str = "TBD";
-const WIFI_PASSWORD: &str = "TBD";
 
 #[embassy_executor::task]
 async fn cyw43_task(runner: cyw43::Runner<'static, Output<'static>, PioSpi<'static, PIO0, 0, DMA_CH0>>) -> ! {
@@ -50,6 +48,9 @@ async fn main(spawner: Spawner) {
 
     let fw = include_bytes!("../firmware/43439A0.bin");
     let clm = include_bytes!("../firmware/43439A0_clm.bin");
+
+    let ssid = include_str!("../wifi/ssid").trim_end();
+    let psk = include_str!("../wifi/psk").trim_end();
 
     // To make flashing faster for development, you may want to flash the firmwares independently
     // at hardcoded addresses, instead of baking them into the program with `include_bytes!`:
@@ -91,7 +92,7 @@ async fn main(spawner: Spawner) {
 
     loop {
         match control
-            .join(WIFI_NETWORK, JoinOptions::new(WIFI_PASSWORD.as_bytes()))
+            .join(ssid, JoinOptions::new(psk.as_bytes()))
             .await
         {
             Ok(_) => break,

@@ -1,2 +1,4 @@
 /target
 *.~undo-tree~
+/wifi/ssid
+/wifi/psk
