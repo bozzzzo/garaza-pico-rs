@@ -13,13 +13,15 @@ use cyw43_pio::PioSpi;
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_net::{Config, StackResources};
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::signal::Signal;
 use embassy_rp::bind_interrupts;
 use embassy_rp::clocks::RoscRng;
 use embassy_rp::gpio::{Level, Output};
 use embassy_rp::peripherals::{DMA_CH0, PIO0};
 use embassy_rp::pio::{InterruptHandler, Pio};
 use embassy_time::{Duration, Timer};
-use picoserve::routing::{get, get_service};
+use picoserve::routing::{post, get_service};
 use rand::RngCore;
 use static_cell::{make_static, StaticCell};
 
@@ -72,6 +74,37 @@ async fn web_task(
     .await
 }
 
+static SIGNAL : Signal<CriticalSectionRawMutex, ()> = Signal::new();
+
+static mut BUTN_COUNT : i32 = 0;
+
+async fn butn() -> &'static str {
+    SIGNAL.signal(());
+    "{\"status\": \"ok\"}"
+}
+
+#[embassy_executor::task]
+async fn vrata_task(mut pin : Output<'static>) -> ! {
+    loop {
+        let _ = SIGNAL.wait().await;
+        pin.set_high();
+        Timer::after_millis(100).await;
+        pin.set_low();
+        Timer::after_secs(2).await;
+    }
+}
+
+#[embassy_executor::task]
+async fn led_task(mut pin : Output<'static>) -> ! {
+    loop {
+        pin.set_high();
+        Timer::after_millis(100).await;
+        pin.set_low();
+        Timer::after_secs(10).await;
+    }
+}
+
+
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
     info!("Hello World!");
@@ -104,6 +137,8 @@ async fn main(spawner: Spawner) {
         p.PIN_29,
         p.DMA_CH0,
     );
+
+    let mut led = Output::new(p.PIN_10, Level::High);
 
     static STATE: StaticCell<cyw43::State> = StaticCell::new();
     let state = STATE.init(cyw43::State::new());
@@ -140,6 +175,11 @@ async fn main(spawner: Spawner) {
 
     unwrap!(spawner.spawn(net_task(runner)));
 
+    let vrata_pin = Output::new(p.PIN_11, Level::Low);
+    unwrap!(spawner.spawn(vrata_task(vrata_pin)));
+
+    
+
     loop {
         match control.join(ssid, JoinOptions::new(psk.as_bytes())).await {
             Ok(_) => break,
@@ -148,6 +188,8 @@ async fn main(spawner: Spawner) {
             }
         }
     }
+
+    led.set_low();
 
     // Wait for DHCP, not necessary when using static IP
     info!("waiting for DHCP...");
@@ -159,23 +201,26 @@ async fn main(spawner: Spawner) {
     fn make_app() -> picoserve::Router<AppRouter> {
         picoserve::Router::new()
             .route(
-                "/",
+                "/vrata/",
                 get_service(picoserve::response::File::html(include_str!(
                     "../site/index.html"
                 ))),
             )
             .route(
-                "/index.css",
+                "/vrata/index.css",
                 get_service(picoserve::response::File::css(include_str!(
                     "../site/index.css"
                 ))),
             )
             .route(
-                "/index.js",
+                "/vrata/index.js",
                 get_service(picoserve::response::File::javascript(include_str!(
                     "../site/index.js"
                 ))),
             )
+            .route(
+            "/vrata/api/butn",
+            post(butn))
     }
 
     let app = make_static!(make_app());
@@ -190,4 +235,6 @@ async fn main(spawner: Spawner) {
     for id in 0..WEB_TASK_POOL_SIZE {
         spawner.must_spawn(web_task(id, stack, app, config));
     }
+    unwrap!(spawner.spawn(led_task(led)));
+
 }
