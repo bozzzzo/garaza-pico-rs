@@ -88,7 +88,7 @@ async fn vrata_task(mut pin : Output<'static>) -> ! {
     loop {
         let _ = SIGNAL.wait().await;
         pin.set_high();
-        Timer::after_millis(100).await;
+        Timer::after_millis(500).await;
         pin.set_low();
         Timer::after_secs(2).await;
     }
