@@ -1,7 +1,10 @@
 .default {
-    color: blue
+    color: blue;
+    transition-property: font-size, color;
+    transition-duration: 1s;
 }
 
 .scripted {
-    color: green
+    color: green;
+    font-size: 2cm;
 }
